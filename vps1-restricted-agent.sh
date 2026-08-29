@@ -20,12 +20,12 @@ echo "created / existing user: $USER (home: $HOMEDIR)"
 echo "=== 2. Set SSH password for $USER ==="
 passwd "$USER"    # prompts for a password - this is what Cipher uses to SSH
 
-echo "=== 3. Allow password SSH (enable PasswordAuthentication) ==="
-# Only edit if /etc/ssh/sshd_config has it disabled. Usually needs:
-#   PasswordAuthentication yes
-if grep -q '^PasswordAuthentication no' /etc/ssh/sshd_config; then
-  sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-  echo "enabled PasswordAuthentication"
+echo "=== 3. Enable password SSH for $USER ONLY (Match User block) ==="
+# IMPORTANT SECURITY FIX (from audit): do NOT flip the GLOBAL PasswordAuthentication
+# switch - that would expose every user to password brute-force. Scope it to cipher only.
+if ! grep -q "Match User $USER" /etc/ssh/sshd_config; then
+  printf '\nMatch User %s\n  PasswordAuthentication yes\n' "$USER" >> /etc/ssh/sshd_config
+  echo "added 'Match User $USER  PasswordAuthentication yes'"
   systemctl reload sshd || service ssh reload
 fi
 
@@ -43,6 +43,29 @@ su - "$USER" -c 'export PATH=/usr/bin:$PATH; command -v dockerd-rootless-setupto
 
 echo "=== 6. Rootless docker socket location (for Netdata monitoring) ==="
 echo "Expected rootless socket: /cipher/.docker/run/docker.sock (NOT /home/cipher/... because home is /cipher)"
+
+echo "=== 6b. OPTIONAL: restrict cipher's outbound network (egress leak guard, from audit) ==="
+cat <<'EGRESS'
+Audit flagged unrestricted egress as a medium/high exfiltration risk (if cipher ever
+reads a secret, it could send it out). Two ways to handle it:
+
+  OPTION 1 - leave egress open (DEFAULT, easiest):
+    cipher needs general outbound to pull docker images and reach Google APIs
+    for its containers. Restricting egress largely defeats that purpose.
+    This is an informed tradeoff - acceptable if you trust cipher's rootless
+    containers to only do work you intend.
+
+  OPTION 2 - restrict cipher's outbound (hardening):
+    Run as root. Blocks cipher's outgoing except loopback, DNS, and SSH to the mesh.
+      iptables -A OUTPUT -m owner --uid-owner cipher -o lo -j ACCEPT
+      iptables -A OUTPUT -m owner --uid-owner cipher -p udp --dport 53 -j ACCEPT
+      iptables -A OUTPUT -m owner --uid-owner cipher -d 10.7.0.0/24 -p tcp --dport 22 -j ACCEPT
+      iptables -A OUTPUT -m owner --uid-owner cipher -j REJECT
+    Do NOT run this if cipher's containers need the internet.
+    NOTE: rootless docker egress goes through slirp4netns (rootlesskit) running
+    as cipher, so these owner-uid rules DO apply to cipher's containers.
+Decide which BEFORE granting access.
+EGRESS
 
 echo
 echo "=== VERIFY ==="
