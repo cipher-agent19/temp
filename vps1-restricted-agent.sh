@@ -67,6 +67,16 @@ reads a secret, it could send it out). Two ways to handle it:
 Decide which BEFORE granting access.
 EGRESS
 
+echo "=== 7. Netdata bind to localhost ONLY (cipher-only access, from audit) ==="
+echo "Netdata dashboard (19999) must NOT bind publicly. Edit /etc/netdata/netdata.conf:"
+cat <<'NETDATA'
+  [web]
+    bind to = 127.0.0.1
+Restart: systemctl restart netdata
+Access ONLY via SSH tunnel as cipher (never open 19999 publicly):
+  ssh -L 19999:127.0.0.1:19999 cipher@10.7.0.1   # then browser -> http://127.0.0.1:19999
+NETDATA
+
 echo
 echo "=== VERIFY ==="
 echo "--- groups (should be ONLY cipher) ---"; groups "$USER"
