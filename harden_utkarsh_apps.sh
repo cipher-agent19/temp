@@ -80,3 +80,4 @@ echo "=== reload ==="
 systemctl reload nginx && echo "reloaded OK"
 echo "=== verify ==="
 grep -nE 'allow |deny ' "$CONF"
+# cache-bust 1788071103
